@@ -5,6 +5,7 @@ import librosa
 import matplotlib.pyplot as plt
 import torch
 from pathlib import Path
+import urllib.request
 
 from .pytorch_utils import move_data_to_device
 from .models import Cnn14, Cnn14_DecisionLevelMax
@@ -24,18 +25,41 @@ def get_filename(path):
 
 
 class AudioTagging(object):
-    def __init__(self, model=None, checkpoint_path=None, device='cuda'):
+    def __init__(self, model=None, checkpoint_path=None, device='cuda', weights_only=False):
         """Audio tagging inference wrapper.
         """
-        if not checkpoint_path:
-            checkpoint_path='{}/panns_data/Cnn14_mAP=0.431.pth'.format(str(Path.home()))
-        print('Checkpoint path: {}'.format(checkpoint_path))
-        
-        if not os.path.exists(checkpoint_path) or os.path.getsize(checkpoint_path) < 3e8:
-            create_folder(os.path.dirname(checkpoint_path))
-            zenodo_path = 'https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1'
-            os.system('wget -O "{}" "{}"'.format(checkpoint_path, zenodo_path))
+        if checkpoint_path is not None and not os.path.exists(checkpoint_path):
+            raise FileNotFoundError("Checkpoint doesn't exist at given path or path not found")
 
+        if not checkpoint_path:
+            checkpoint_path='{}/panns_data/Cnn14_DecisionLevelMax.pth'.format(str(Path.home()))
+            
+            if not os.path.exists(checkpoint_path) or os.path.getsize(checkpoint_path) < 3e8:
+                dpath = os.path.dirname(checkpoint_path)
+                create_folder(dpath)
+                print("Given path empty, downloading the checkpoint...")
+                print(f"Downloading at {dpath}")
+                zenodo_path = 'https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1'
+                
+                def download_progress_hook(block_num, block_size, total_size):
+                    downloaded = block_num * block_size
+                    percent = int(downloaded * 100 / total_size) if total_size > 0 else 0
+                    print(f"\rDownloading: {percent}% ({downloaded // (1024 * 1024)} MB / {total_size // (1024 * 1024)} MB)", end='')
+
+                try:
+                    urllib.request.urlretrieve(zenodo_path, checkpoint_path, reporthook=download_progress_hook)
+                    print("Download completed.")
+                except Exception as e:
+                    print(f"Download failed: {e}")
+                
+                else:
+                    print('Given path empty, using checkpoint at Checkpoint path: {}'.format(checkpoint_path))
+
+
+        else: print('Loading checkpoint, Checkpoint path: {}'.format(checkpoint_path))
+        
+       
+       #checking device
         if device == 'cuda' and torch.cuda.is_available():
             self.device = 'cuda'
         else:
@@ -52,7 +76,7 @@ class AudioTagging(object):
         else:
             self.model = model
 
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=weights_only)
         self.model.load_state_dict(checkpoint['model'])
 
         # Parallel
@@ -86,14 +110,36 @@ class SoundEventDetection(object):
             device: str, 'cpu' | 'cuda'
             interpolate_mode, 'nearest' |'linear'
         """
+        if checkpoint_path is not None and not os.path.exists(checkpoint_path):
+            raise FileNotFoundError("Checkpoint doesn't exist at given path or path not found.")
+
         if not checkpoint_path:
             checkpoint_path='{}/panns_data/Cnn14_DecisionLevelMax.pth'.format(str(Path.home()))
-        print('Checkpoint path: {}'.format(checkpoint_path))
+           
+            if not os.path.exists(checkpoint_path) or os.path.getsize(checkpoint_path) < 3e8:
+                dpath = os.path.dirname(checkpoint_path)
+                create_folder(dpath)
+                print("Given path empty, downloading the checkpoint...")
+                print(f"Downloading at {dpath}")
+                zenodo_path = 'https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth?download=1'
+                
+                def download_progress_hook(block_num, block_size, total_size):
+                    downloaded = block_num * block_size
+                    percent = int(downloaded * 100 / total_size) if total_size > 0 else 0
+                    print(f"\rDownloading: {percent}% ({downloaded // (1024 * 1024)} MB / {total_size // (1024 * 1024)} MB)", end='')
 
-        if not os.path.exists(checkpoint_path) or os.path.getsize(checkpoint_path) < 3e8:
-            create_folder(os.path.dirname(checkpoint_path))
-            os.system('wget -O "{}" https://zenodo.org/record/3987831/files/Cnn14_DecisionLevelMax_mAP%3D0.385.pth?download=1'.format(checkpoint_path))
+                try:
+                    urllib.request.urlretrieve(zenodo_path, checkpoint_path, reporthook=download_progress_hook)
+                    print("Download completed.")
+                except Exception as e:
+                    print(f"Download failed: {e}")
+                
+                else:
+                    print('Given path empty, using checkpoint at Checkpoint path: {}'.format(checkpoint_path))
 
+        else: print('Loading checkpoint, Checkpoint path: {}'.format(checkpoint_path))
+
+        # check device availability
         if device == 'cuda' and torch.cuda.is_available():
             self.device = 'cuda'
         else:
@@ -130,7 +176,8 @@ class SoundEventDetection(object):
                 input=audio, 
                 mixup_lambda=None
             )
-
+        # print(output_dict)
         framewise_output = output_dict['framewise_output'].data.cpu().numpy()
 
         return framewise_output
+  
